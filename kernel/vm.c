@@ -6,8 +6,10 @@
 #include "riscv.h"
 #include "defs.h"
 #include "spinlock.h"
-#include "proc.h"
+#include "sleeplock.h"
 #include "fs.h"
+#include "buf.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -681,7 +683,8 @@ int ismapped(pagetable_t pagetable, uint64 va)
 
 void swap_out(struct frame *choice)
 {
-  // printf("swap_out: called\n");
+  // printf("swapped out page\n");
+  printf("swap_out: called\n");
   // printf("swapout: called va=%lu pid=%d\n", choice->va, choice->curr_proc->pid);
   pte_t *pte = walk(choice->curr_proc->pagetable, choice->va, 0);
   acquire(&swap_lock);
@@ -697,17 +700,33 @@ void swap_out(struct frame *choice)
   s->pagetable = choice->curr_proc->pagetable;
   s->va = choice->va;
   struct proc *p = choice->curr_proc;
-  memmove((void *)s->data, (void *)choice->pa, PGSIZE);
+  int index = s - swap_table;
+  int NO_OF_BLOCKS = PGSIZE / BSIZE;
+  int START_BLOCK = SWAPSTART + index*NO_OF_BLOCKS;
+  struct buf* b;
+  char temp[PGSIZE];
+  memmove((void *)temp, (void *)choice->pa, PGSIZE);
   release(&swap_lock);
+  release(&frame_lock);
+  for(int i=0;i<NO_OF_BLOCKS;i++){
+    b = bread(ROOTDEV, START_BLOCK + i);
+    memmove((void *)b->data, (void *)(temp + i*BSIZE), BSIZE);
+    bwrite(b);
+    brelse(b);
+  }
+  acquire(&frame_lock);
+  acquire(&swap_lock);
   p->resident_pages--;
   p->pages_swapped_out++;
   *pte = (*pte & ~PTE_V) | PTE_S;
   sfence_vma();
+  printf("swapped out page\n");
   // memset((void*)mem, 0, PGSIZE);
 }
 uint64
 swap_in(pagetable_t pagetable, uint64 va)
 {
+  printf("swap_in: called\n");
   // printf("swap_in: called\n");
   // printf("swapin: called va=%lu pid=%d\n", va, myproc()->pid);
   va = PGROUNDDOWN(va);
@@ -774,16 +793,27 @@ swap_in(pagetable_t pagetable, uint64 va)
     f->ref_bit = 0;
     release(&frame_lock);
     // release(&swap_lock);
+    printf("swapped in page\n");
     return 0;
   }
-  memmove((void *)PTE2PA(*pte), (void *)s->data, PGSIZE);
+  int index = s - swap_table;
+  int NO_OF_BLOCKS = PGSIZE / BSIZE;
+  int START_BLOCK = SWAPSTART + index*NO_OF_BLOCKS;
+  struct buf* b;
+  release(&frame_lock);
+  for(int i=0;i<NO_OF_BLOCKS;i++){
+    printf("mem=%ld pte2pa=%ld\n", mem, PTE2PA(*pte));
+    b = bread(ROOTDEV, START_BLOCK + i);
+    memmove((void *)(PTE2PA(*pte) + i*BSIZE), (void *)b->data, BSIZE);
+    brelse(b);
+  }
+  acquire(&frame_lock);
   *pte |= PTE_V;
   *pte &= ~PTE_S;
   acquire(&swap_lock);
   s->in_use = 0;
   s->pagetable = 0;
   s->va = 0;
-  memset((void *)s->data, 0, PGSIZE);
   p->resident_pages++;
   p->pages_swapped_in++;
   p->page_faults++;

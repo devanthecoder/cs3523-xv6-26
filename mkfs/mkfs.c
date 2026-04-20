@@ -20,7 +20,7 @@
 // Disk layout:
 // [ boot block | sb block | log | inode blocks | free bit map | data blocks ]
 
-int nbitmap = FSSIZE/BPB + 1;
+int nbitmap = (FSSIZE-SWAPBLOCKS)/BPB + 1;
 int ninodeblocks = NINODES / IPB + 1;
 int nlog = LOGBLOCKS+1;   // Header followed by LOGBLOCKS data blocks.
 int nmeta;    // Number of meta blocks (boot, sb, nlog, inode, bitmap)
@@ -91,7 +91,7 @@ main(int argc, char *argv[])
 
   // 1 fs block = 1 disk sector
   nmeta = 2 + nlog + ninodeblocks + nbitmap;
-  nblocks = FSSIZE - nmeta;
+  nblocks = FSSIZE - nmeta - SWAPBLOCKS;
 
   sb.magic = FSMAGIC;
   sb.size = xint(FSSIZE);
@@ -101,9 +101,10 @@ main(int argc, char *argv[])
   sb.logstart = xint(2);
   sb.inodestart = xint(2+nlog);
   sb.bmapstart = xint(2+nlog+ninodeblocks);
+  // sb.swapstart = xint(FSSIZE - SWAPBLOCKS);
 
-  printf("nmeta %d (boot, super, log blocks %u, inode blocks %u, bitmap blocks %u) blocks %d total %d\n",
-         nmeta, nlog, ninodeblocks, nbitmap, nblocks, FSSIZE);
+  printf("nmeta %d (boot, super, log blocks %u, inode blocks %u, bitmap blocks %u) data blocks %d swap blocks %d total %d\n",
+         nmeta, nlog, ninodeblocks, nbitmap, nblocks, SWAPBLOCKS, FSSIZE);
 
   freeblock = nmeta;     // the first free block that we can allocate
 
