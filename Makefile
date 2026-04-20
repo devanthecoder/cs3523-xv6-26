@@ -138,6 +138,21 @@ UPROGS=\
 	$U/_rm\
 	$U/_sh\
 	$U/_stressfs\
+	$U/_A1\
+	$U/_A\
+	$U/_B\
+	$U/_C\
+	$U/_D\
+	$U/_E\
+	$U/_F\
+	$U/_G\
+	$U/_H\
+	$U/_vmswap1\
+	$U/_vmswap2\
+	$U/_vmswap3\
+	$U/_vmswap4\
+	$U/_vmswap5\
+	$U/_vmswap6\
 	$U/_usertests\
 	$U/_grind\
 	$U/_wc\

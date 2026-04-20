@@ -8,11 +8,12 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "vminfo.h"
 
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
-                   // defined by kernel.ld.
+// defined by kernel.ld.
 
 struct run {
   struct run *next;
@@ -23,9 +24,13 @@ struct {
   struct run *freelist;
 } kmem;
 
+struct spinlock frame_lock, swap_lock;
+
 void
 kinit()
 {
+  initlock(&frame_lock, "frame");
+  initlock(&swap_lock, "swap");
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
 }

@@ -2,6 +2,7 @@
 
 #include "kernel/types.h"
 #include "kernel/stat.h"
+#include "kernel/mlfqinfo.h"
 #include "kernel/spinlock.h"
 #include "kernel/sleeplock.h"
 #include "kernel/fs.h"
@@ -15,6 +16,8 @@ int
 main(void)
 {
   int pid, wpid;
+  struct mlfqinfo info;
+  getmlfqinfo(getpid(), &info);
 
   if(open("console", O_RDWR) < 0){
     mknod("console", CONSOLE, 0);
@@ -25,6 +28,31 @@ main(void)
 
   for(;;){
     printf("init: starting sh\n");
+    printf("As this process is the first process, it has no parent and hence getppid() = %d (-1) and getpid2() = %d (1)\n", getppid(), getpid2());
+    printf("\n");
+    printf("MLFQ INFO:\n");
+    printf("1. Level of process in MLFQ: %d\n", info.level);
+    printf("2. Ticks consumed per level:\n");
+    for(int i=0;i<4;i++){
+        char c;
+        switch(i){
+            case 0:
+            c = 'a';
+            break;
+            case 1:
+            c = 'b';
+            break;
+            case 2:
+            c = 'c';
+            break;
+            case 3:
+            c = 'd';
+            break;
+        }
+        printf("\t%c. At level %d: %d\n", c, i, info.ticks[i]);
+    }
+    printf("3. %d\n", info.times_scheduled);
+    printf("4. %d\n", info.total_syscalls);
     pid = fork();
     if(pid < 0){
       printf("init: fork failed\n");

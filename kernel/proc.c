@@ -5,7 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-
+#include "mlfqinfo.h"
+#include "vminfo.h"
+extern int resetPriority;
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -124,7 +126,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-
+  p->syscallcount = 0;
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -168,7 +170,20 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->syscallcount = 0; //counts no. of system calls
   p->state = UNUSED;
+  //mlfq-related info
+  p->level = 0;
+  for(int i=0;i<4;i++) p->ticks[i] = 0;
+  p->ticks_currlevel = 0;
+  p->times_scheduled = 0;
+  p->prevcount = 0;
+  p->noDemotion = 0;
+  p->page_faults = 0;
+  p->pages_evicted = 0;
+  p->pages_swapped_in = 0;
+  p->pages_swapped_out = 0;
+  p->resident_pages = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -428,6 +443,8 @@ scheduler(void)
   struct cpu *c = mycpu();
 
   c->proc = 0;
+  int level = 0;
+  int firstRun = 1;
   for(;;){
     // The most recent process to run may have had interrupts
     // turned off; enable them to avoid a deadlock if all
@@ -436,14 +453,29 @@ scheduler(void)
     // and wfi.
     intr_on();
     intr_off();
-
-    int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
+      if(p->state == RUNNABLE){
+        if(firstRun){
+          
+          level = p->level;
+          firstRun = 0;
+        }
+        else{
+          if(p->level < level) level = p->level;
+        }
+      }
+      release(&p->lock);
+    }
+    int found = 0;
+    // printf("Checking through proc table with level = %d\n", level);
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE && p->level == level) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
+        p->times_scheduled++;
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
@@ -452,12 +484,18 @@ scheduler(void)
         // It should have changed its p->state before coming back.
         c->proc = 0;
         found = 1;
+        firstRun = 1;
       }
       release(&p->lock);
     }
     if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      asm volatile("wfi");
+      if(level < 3){
+        continue;
+      }
+      else{
+        // nothing to run; stop running on this core until an interrupt.
+        asm volatile("wfi");
+      }
     }
   }
 }
@@ -687,4 +725,65 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int 
+mlfqstat(int pid, uint64 addr){
+  struct proc* p;
+  struct mlfqinfo info;
+  //Finding proc with the given PID
+  acquire(&wait_lock);
+  int isValid = 0;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      release(&p->lock);
+      isValid = 1;
+      break;
+    }
+    release(&p->lock);
+  }
+  release(&wait_lock);
+  if(!isValid) return -1;
+
+  //After finding correct proc, putting all the info in MLFQinfo struct
+  acquire(&p->lock);
+  (&info)->level = p->level;
+  for(int i=0;i<4;i++) (&info)->ticks[i] = p->ticks[i];
+  (&info)->times_scheduled = p->times_scheduled;
+  (&info)->total_syscalls = p->syscallcount;
+  release(&p->lock);
+  if(copyout(myproc()->pagetable, addr, (char *)(&info), sizeof(info)) < 0) return -1;
+  return 0;
+}
+int 
+vmstat(int pid, uint64 addr){
+  struct proc* p;
+  struct vmstats info;
+  //Finding proc with the given PID
+  acquire(&wait_lock);
+  int isValid = 0;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      release(&p->lock);
+      isValid = 1;
+      break;
+    }
+    release(&p->lock);
+  }
+  release(&wait_lock);
+  if(!isValid) return -1;
+
+  //After finding correct proc, putting all the info in VMStats struct
+  acquire(&p->lock);
+  (&info)->page_faults = p->page_faults;
+  // for(int i=0;i<4;i++) (&info)->ticks[i] = p->ticks[i];
+  (&info)->pages_evicted = p->pages_evicted;
+  (&info)->pages_swapped_in = p->pages_swapped_in;
+  (&info)->pages_swapped_out = p->pages_swapped_out;
+  (&info)->resident_pages = p->resident_pages;
+  release(&p->lock);
+  if(copyout(myproc()->pagetable, addr, (char *)(&info), sizeof(info)) < 0) return -1;
+  return 0;
 }

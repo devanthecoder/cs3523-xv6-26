@@ -7,7 +7,10 @@ struct proc;
 struct spinlock;
 struct sleeplock;
 struct stat;
+struct mlfqinfo;
+struct vmstats;
 struct superblock;
+struct frame;
 
 // bio.c
 void            binit(void);
@@ -101,6 +104,8 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+int             mlfqstat(int pid, uint64 addr);
+int             vmstat(int pid, uint64 addr);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -169,6 +174,9 @@ int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 int             ismapped(pagetable_t, uint64);
 uint64          vmfault(pagetable_t, uint64, int);
+struct frame*   evict(void);
+void            swap_out(struct frame*);
+uint64          swap_in(pagetable_t, uint64);
 
 // plic.c
 void            plicinit(void);
