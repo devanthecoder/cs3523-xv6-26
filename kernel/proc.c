@@ -284,11 +284,15 @@ kfork(void)
   }
 
   // Copy user memory from parent to child.
+  release(&np->lock);
+  printf("process p: %p and process np: %p\n", p->pagetable, np->pagetable);
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+    acquire(&np->lock);
     freeproc(np);
     release(&np->lock);
     return -1;
   }
+  acquire(&np->lock);
   np->sz = p->sz;
 
   // copy saved user registers.
@@ -403,12 +407,15 @@ kwait(uint64 addr)
         if(pp->state == ZOMBIE){
           // Found one.
           pid = pp->pid;
-          if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,
-                                  sizeof(pp->xstate)) < 0) {
-            release(&pp->lock);
-            release(&wait_lock);
+          int xstate = pp->xstate;
+          release(&pp->lock);
+          release(&wait_lock);
+          if(addr != 0 && copyout(p->pagetable, addr, (char *)&xstate,
+          sizeof(pp->xstate)) < 0) {
             return -1;
           }
+          acquire(&pp->lock);
+          acquire(&wait_lock);
           freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);
@@ -516,7 +523,21 @@ sched(void)
   if(!holding(&p->lock))
     panic("sched p->lock");
   if(mycpu()->noff != 1)
+  {
+    printf("mycpu()->noff = %d\n", mycpu()->noff);
+    printf("\n=== SCHED LOCKS PANIC! ===\n");
+    printf("CPU %d is holding %d locks:\n", cpuid(), mycpu()->noff);
+    for (int i = 0; i < 10; i++)
+    {
+      if (mycpu()->held_locks[i])
+      {
+        // Every spinlock has a 'name' string initialized in initlock()
+        printf("  - %s\n", mycpu()->held_locks[i]->name);
+      }
+    }
     panic("sched locks");
+  }
+    // panic("sched locks");
   if(p->state == RUNNING)
     panic("sched RUNNING");
   if(intr_get())

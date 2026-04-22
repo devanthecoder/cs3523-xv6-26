@@ -15,6 +15,7 @@
 #include "fs.h"
 #include "buf.h"
 #include "virtio.h"
+#include "disk_swap.h"
 
 // the address of virtio mmio register r.
 #define R(r) ((volatile uint32 *)(VIRTIO0 + (r)))
@@ -145,6 +146,7 @@ virtio_disk_init(void)
   for(int i = 0; i < NUM; i++)
     disk.free[i] = 1;
 
+  disk_swap_init();
   // tell device we're completely ready.
   status |= VIRTIO_CONFIG_S_DRIVER_OK;
   *R(VIRTIO_MMIO_STATUS) = status;

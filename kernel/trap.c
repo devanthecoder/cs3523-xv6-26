@@ -199,7 +199,7 @@ kerneltrap()
   
   if((which_dev = devintr()) == 0){
     // interrupt or trap from an unknown source
-    printf("%d\n", myproc()->pid);
+    // printf("%d\n", myproc()->pid);
     printf("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(), r_stval());
     panic("kerneltrap");
   }

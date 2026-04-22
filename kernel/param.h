@@ -3,7 +3,9 @@
 #define NOFILE       16  // open files per process
 #define NFILE       100  // open files per system
 #define NFRAME       64  // frames per system
-#define SWAPSIZE   1175  // frames per system
+#define NDISK         4  // disks in RAID
+#define NREQUEST     16  // no of I/O requests
+#define SWAPSIZE   1175  // swap table per system
 #define NINODE       50  // maximum number of active i-nodes
 #define NDEV         10  // maximum major device number
 #define ROOTDEV       1  // device number of file system root disk
@@ -16,6 +18,7 @@
 #define SWAPSTART    FSSIZE - SWAPBLOCKS
 #define MAXPATH      128   // maximum file path name
 #define USERSTACK    1     // user stack pages
+#define C_R            100   // rotational delay
 //MLFQ MACROs
 // #define Q0           2     // Time Quantum in Queue 0
 // #define Q1           4     // Time Quantum in Queue 1

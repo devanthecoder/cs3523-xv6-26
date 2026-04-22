@@ -10,6 +10,7 @@ struct stat;
 struct mlfqinfo;
 struct vmstats;
 struct superblock;
+struct request;
 struct frame;
 
 // bio.c
@@ -188,6 +189,13 @@ void            plic_complete(int);
 void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
+
+// disk_swap.c
+void            disk_write(void*, int);
+void            disk_read(void*, int);
+void            sched_disk(int);
+void            send_request(uint64, int, int);
+void            disk_swap_init(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

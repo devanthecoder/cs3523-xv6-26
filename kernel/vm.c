@@ -10,18 +10,18 @@
 #include "fs.h"
 #include "buf.h"
 #include "proc.h"
+#include "disk_swap.h"
 
 /*
- * the kernel's page table.
- */
+* the kernel's page table.
+*/
 pagetable_t kernel_pagetable;
-
 struct swapslot
 {
   int in_use;
   pagetable_t pagetable;
   uint64 va;
-  char data[PGSIZE];
+  int swappedOut;
 };
 
 // #define MAX_FRAMES 100
@@ -238,6 +238,7 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
               s->in_use = 0; // Free the swap slot!
               s->pagetable = 0;
               s->va = 0;
+              s->swappedOut = 0;
               break;
             }
           }
@@ -641,6 +642,16 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
   else
   {
     mem = f->pa;
+    if(mem==0){
+      mem = (uint64)kalloc();
+      if (mem == 0)
+      {
+        release(&frame_lock);
+        // printf("Hello3\n");
+        return 0;
+      }
+      f->pa = mem;
+    }
   }
   memset((void *)mem, 0, PGSIZE);
   f->curr_proc = p;
@@ -683,9 +694,8 @@ int ismapped(pagetable_t pagetable, uint64 va)
 
 void swap_out(struct frame *choice)
 {
-  // printf("swapped out page\n");
-  printf("swap_out: called\n");
-  // printf("swapout: called va=%lu pid=%d\n", choice->va, choice->curr_proc->pid);
+  // char *temp = kalloc();
+  // if(!temp) panic("swap_out: no memory for temp");
   pte_t *pte = walk(choice->curr_proc->pagetable, choice->va, 0);
   acquire(&swap_lock);
   struct swapslot *s;
@@ -701,32 +711,36 @@ void swap_out(struct frame *choice)
   s->va = choice->va;
   struct proc *p = choice->curr_proc;
   int index = s - swap_table;
+  // printf("%d\n", index);
   int NO_OF_BLOCKS = PGSIZE / BSIZE;
   int START_BLOCK = SWAPSTART + index*NO_OF_BLOCKS;
-  struct buf* b;
-  char temp[PGSIZE];
-  memmove((void *)temp, (void *)choice->pa, PGSIZE);
-  release(&swap_lock);
-  release(&frame_lock);
-  for(int i=0;i<NO_OF_BLOCKS;i++){
-    b = bread(ROOTDEV, START_BLOCK + i);
-    memmove((void *)b->data, (void *)(temp + i*BSIZE), BSIZE);
-    bwrite(b);
-    brelse(b);
-  }
-  acquire(&frame_lock);
-  acquire(&swap_lock);
-  p->resident_pages--;
-  p->pages_swapped_out++;
+  // struct buf* b;
+  // memmove((void *)temp, (void *)choice->pa, PGSIZE);
+  // Invalidate PTE while both locks are still held.
+  s->swappedOut = 0;
   *pte = (*pte & ~PTE_V) | PTE_S;
   sfence_vma();
-  printf("swapped out page\n");
-  // memset((void*)mem, 0, PGSIZE);
+  p->resident_pages--;
+  p->pages_swapped_out++;
+  // Release frame_lock before potentially sleeping so sched() sees noff==1.
+  release(&frame_lock);
+  // while(s->swappedOut == 1){
+    //   sleep((void *)s, &swap_lock);
+    // }
+  release(&swap_lock);
+  send_request(choice->pa, 1, START_BLOCK);
+  // kfree(temp);
+  acquire(&swap_lock);
+  s->swappedOut = 1;
+  wakeup((void *)s);
+  release(&swap_lock);
+  acquire(&frame_lock);
 }
 uint64
 swap_in(pagetable_t pagetable, uint64 va)
 {
-  printf("swap_in: called\n");
+  // printf("starting noff=%d\n", mycpu()->noff);
+  // printf("swap_in: called\n");
   // printf("swap_in: called\n");
   // printf("swapin: called va=%lu pid=%d\n", va, myproc()->pid);
   va = PGROUNDDOWN(va);
@@ -744,6 +758,9 @@ swap_in(pagetable_t pagetable, uint64 va)
     release(&swap_lock);
     // printf("nigg");
     return 0;
+  }
+  while(s->swappedOut == 0){
+    sleep((void *)s, &swap_lock);
   }
   release(&swap_lock);
   acquire(&frame_lock);
@@ -770,19 +787,45 @@ swap_in(pagetable_t pagetable, uint64 va)
       release(&frame_lock);
       return 0;
     }
-    memset((void *)mem, 0, PGSIZE);
-    f->pa = mem;
   }
   else
   {
     mem = f->pa;
+    if(mem == 0){
+      mem = (uint64)kalloc();
+      if (mem == 0)
+      {
+        release(&frame_lock);
+        return 0;
+      }
+    }
   }
+  memset((void *)mem, 0, PGSIZE);
+  f->pa = mem;
   f->curr_proc = p;
-  f->in_use = 1;
+  f->in_use = 2;
   f->va = va;
   f->ref_bit = 1;
+  int index = s - swap_table;
+  int NO_OF_BLOCKS = PGSIZE / BSIZE;
+  int START_BLOCK = SWAPSTART + index*NO_OF_BLOCKS;
+  // printf("noff=%d\n", mycpu()->noff);
+  release(&frame_lock);
+  // if(mycpu()->noff == 1) release(&swap_lock);
+  send_request(mem, 0, START_BLOCK);
+  // struct buf* b;
+  // for(int i=0;i<NO_OF_BLOCKS;i++){
+  //   // printf("mem=%ld pte2pa=%ld\n", mem, PTE2PA(*pte));
+  //   // printf("noff=%d\n", mycpu()->noff);
+  //   b = bread(ROOTDEV, START_BLOCK + i);
+  //   memmove((void *)(mem + i*BSIZE), (void *)b->data, BSIZE);
+  //   brelse(b);
+  // }
+  // printf("mem=%ld pte2pa=%ld\n", mem, PTE2PA(*pte));
+  acquire(&frame_lock);
   uint flags = PTE_FLAGS(*pte);
-  if (mappages(p->pagetable, va, PGSIZE, mem, flags) != 0)
+  flags &= ~PTE_S; 
+  if (mappages(p->pagetable, va, PGSIZE, mem, flags | PTE_V) != 0)
   {
     if (!hasEvicted)
     kfree((void *)mem);
@@ -793,27 +836,16 @@ swap_in(pagetable_t pagetable, uint64 va)
     f->ref_bit = 0;
     release(&frame_lock);
     // release(&swap_lock);
-    printf("swapped in page\n");
+    // printf("swapped in page\n");
     return 0;
   }
-  int index = s - swap_table;
-  int NO_OF_BLOCKS = PGSIZE / BSIZE;
-  int START_BLOCK = SWAPSTART + index*NO_OF_BLOCKS;
-  struct buf* b;
-  release(&frame_lock);
-  for(int i=0;i<NO_OF_BLOCKS;i++){
-    printf("mem=%ld pte2pa=%ld\n", mem, PTE2PA(*pte));
-    b = bread(ROOTDEV, START_BLOCK + i);
-    memmove((void *)(PTE2PA(*pte) + i*BSIZE), (void *)b->data, BSIZE);
-    brelse(b);
-  }
-  acquire(&frame_lock);
-  *pte |= PTE_V;
-  *pte &= ~PTE_S;
+  f->in_use = 1;
   acquire(&swap_lock);
   s->in_use = 0;
   s->pagetable = 0;
   s->va = 0;
+  // wakeup((void *)s);
+  s->swappedOut = 0;
   p->resident_pages++;
   p->pages_swapped_in++;
   p->page_faults++;
@@ -827,13 +859,13 @@ evict()
   // printf("evict: called\n");
   // printf("evict: called pid=%d\n",myproc()->pid);
   acquire(&frame_lock);
-  struct frame *choice = 0, *start, *very_start = clock_hand;
+  struct frame *choice = 0, *start;
   int no_of_loops = 0;
   while(choice==0){
     while (clock_hand->ref_bit == 1)
     {
-      if (clock_hand->in_use  && clock_hand->curr_proc != 0)
-        clock_hand->ref_bit = 0;
+      if (clock_hand->in_use == 1 && clock_hand->curr_proc != 0)
+      clock_hand->ref_bit = 0;
       clock_hand = clock_hand < &frame_table[NFRAME - 1] ? (clock_hand + 1) : frame_table;
       // if(clock)
     }
@@ -842,13 +874,13 @@ evict()
     start = clock_hand;
     while (clock_hand->ref_bit == 0)
     {
-      if (clock_hand->in_use && clock_hand->curr_proc != 0 && firstRun)
+      if (clock_hand->in_use == 1 && clock_hand->curr_proc != 0 && firstRun)
       {
         choice = clock_hand;
         // start = clock_hand;
         firstRun = 0;
       }
-      if (clock_hand->in_use && clock_hand->curr_proc != 0 && clock_hand->curr_proc->level > min_priority)
+      if (clock_hand->in_use == 1 && clock_hand->curr_proc != 0 && clock_hand->curr_proc->level > min_priority)
       {
         // else{
         choice = clock_hand;
@@ -859,7 +891,7 @@ evict()
       if (clock_hand == start)
         break;
     }
-    if (choice == 0 && clock_hand == very_start) {
+    if (choice == 0) {
         no_of_loops++;
         if (no_of_loops > 2) {
             release(&frame_lock);
@@ -870,6 +902,8 @@ evict()
   // if (choice == 0)
   //   panic("no valid frame");
   struct proc *p = choice->curr_proc;
+  choice->in_use = 2;  // mark in-progress so other CPUs skip this frame
+  // printf("evicting page of pid %d\n", p->pid);
   swap_out(choice);
   p->pages_evicted++;
   choice->curr_proc = 0;
