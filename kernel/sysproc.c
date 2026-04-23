@@ -73,6 +73,7 @@ sys_sbrk(void)
   
   if(t == SBRK_EAGER || n < 0) {
     if(growproc(n) < 0) {
+      printf("hello w");
       return -1;
     }
   } else {

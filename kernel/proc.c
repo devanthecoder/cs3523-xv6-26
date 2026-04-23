@@ -260,6 +260,7 @@ growproc(int n)
       return -1;
     }
     if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
+      printf("UVMALLOC failed");
       return -1;
     }
   } else if(n < 0){
