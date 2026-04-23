@@ -290,6 +290,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
     if (mem == 0)
     {
       uvmdealloc(pagetable, a, oldsz);
+      printf("DEALLOCED1");
       return 0;
     }
     memset(mem, 0, PGSIZE);
@@ -297,6 +298,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
     {
       kfree(mem);
       uvmdealloc(pagetable, a, oldsz);
+      printf("DEALLOCED2");
       return 0;
     }
     struct frame *f;
@@ -304,12 +306,19 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
     for (f = frame_table; f < &frame_table[NFRAME]; f++)
     {
       if (f->in_use == 0)
-        break;
+      break;
     }
     if (f == &frame_table[NFRAME])
     {
       release(&frame_lock);
       f = evict();
+      if(f == 0) {
+        printf("FAILED EVICT: ALLC");
+        kfree(mem);
+        uvmunmap(pagetable, a, 1, 0);  // unmap just this one page, don't free phys (we just freed it)
+        uvmdealloc(pagetable, a, oldsz);
+        return 0;
+      }
       acquire(&frame_lock);
       kfree((void *)f->pa);
     }
@@ -320,6 +329,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
     f->pa = (uint64)mem;
     p->resident_pages++;
     release(&frame_lock);
+    // printf("FAILED EVICT");
   }
   return newsz;
 }
@@ -431,6 +441,10 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       {
         release(&frame_lock);
         f = evict();
+        if(f==0) {
+          printf("FAILED EVICT: CPY\n");
+          return -1;
+        }
         acquire(&frame_lock);
         kfree((void *)f->pa);
       }
@@ -593,8 +607,7 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
   uint64 mem;
   if(pte && (*pte & PTE_S)){
     mem = swap_in(pagetable, va);
-    if(!mem) panic("swap in not found");
-    else return mem;
+    return mem;
   }
   struct proc *p = myproc();
   // printf("vmfault: called va=%lu pid=%d\n", va, p->pid);
@@ -622,6 +635,10 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
   {
     release(&frame_lock);
     f = evict();
+    if(f==0) {
+      printf("FAILED EVICT: VM\n");
+      return 0;
+    }
     acquire(&frame_lock);
     hasEvicted = 1;
   }
@@ -679,10 +696,10 @@ int ismapped(pagetable_t pagetable, uint64 va)
   return 0;
 }
 
-void swap_out(struct frame *choice)
+int swap_out(struct frame *choice)
 {
   // printf("swap_out: called\n");
-  // printf("swapout: called va=%lu pid=%d\n", choice->va, choice->curr_proc->pid);
+  printf("swapout: called va=%lu pid=%d\n", choice->va, choice->curr_proc->pid);
   pte_t *pte = walk(choice->curr_proc->pagetable, choice->va, 0);
   acquire(&swap_lock);
   struct swapslot *s;
@@ -691,8 +708,11 @@ void swap_out(struct frame *choice)
     if (s->in_use == 0)
     break;
   }
-  if (s == &swap_table[SWAPSIZE])
-  panic("swap table full: cannot swap out");
+  if (s == &swap_table[SWAPSIZE]) {
+    release(&swap_lock);
+    printf("swap out failed\n");
+    return -1;
+  }
   s->in_use = 1;
   s->pagetable = choice->curr_proc->pagetable;
   s->va = choice->va;
@@ -703,6 +723,8 @@ void swap_out(struct frame *choice)
   p->pages_swapped_out++;
   *pte = (*pte & ~PTE_V) | PTE_S;
   sfence_vma();
+  // printf("swapout done\n");
+  return 0;
   // memset((void*)mem, 0, PGSIZE);
 }
 uint64
@@ -723,7 +745,6 @@ swap_in(pagetable_t pagetable, uint64 va)
   if (s == &swap_table[SWAPSIZE])
   {
     release(&swap_lock);
-    // printf("nigg");
     return 0;
   }
   release(&swap_lock);
@@ -740,6 +761,10 @@ swap_in(pagetable_t pagetable, uint64 va)
   {
     release(&frame_lock);
     f = evict();
+    if(f==0) {
+      printf("FAILED EVICT: SI\n");
+      return 0;
+    }
     acquire(&frame_lock);
     hasEvicted = 1;
   }
@@ -789,6 +814,7 @@ swap_in(pagetable_t pagetable, uint64 va)
   p->page_faults++;
   release(&frame_lock);
   release(&swap_lock);
+  // printf("swapin done\n");
   return mem;
 }
 struct frame *
@@ -840,7 +866,11 @@ evict()
   // if (choice == 0)
   //   panic("no valid frame");
   struct proc *p = choice->curr_proc;
-  swap_out(choice);
+  int j = swap_out(choice);
+  if(j < 0) {
+    release(&frame_lock);
+    return (struct frame *) 0;
+  }
   p->pages_evicted++;
   choice->curr_proc = 0;
   release(&frame_lock);
