@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "disk_swap.h"
 
 extern struct proc proc[NPROC];
 extern struct spinlock wait_lock;
@@ -253,5 +254,15 @@ sys_getvmstats(void){
   uint64 info;
   argaddr(1, &info);
   return vmstat(pid, info);
+  // int pid;
+}
+
+uint64
+sys_setdisksched(void){
+  int Policy;
+  argint(0, &Policy);
+  if(Policy != 1 && Policy != 0) return -1;
+  policy = Policy;
+  return 0;
   // int pid;
 }

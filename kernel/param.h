@@ -6,6 +6,7 @@
 #define NDISK         4  // disks in RAID
 #define NREQUEST     16  // no of I/O requests
 #define SWAPSIZE   1175  // swap table per system
+#define DISKSIZE     (SWAPSIZE / NDISK) // size of disk
 #define NINODE       50  // maximum number of active i-nodes
 #define NDEV         10  // maximum major device number
 #define ROOTDEV       1  // device number of file system root disk

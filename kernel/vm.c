@@ -711,8 +711,8 @@ int ismapped(pagetable_t pagetable, uint64 va)
 
 int swap_out(struct frame *choice)
 {
-  // char *temp = kalloc();
-  // if(!temp) panic("swap_out: no memory for temp");
+  // printf("swap_out: called\n");
+  printf("swapout: called va=%lu pid=%d\n", choice->va, choice->curr_proc->pid);
   pte_t *pte = walk(choice->curr_proc->pagetable, choice->va, 0);
   acquire(&swap_lock);
   struct swapslot *s;
@@ -740,7 +740,6 @@ int swap_out(struct frame *choice)
   s->swappedOut = 0;
   *pte = (*pte & ~PTE_V) | PTE_S;
   sfence_vma();
-  // printf("swapout done\n");
   p->resident_pages--;
   p->pages_swapped_out++;
   // Release frame_lock before potentially sleeping so sched() sees noff==1.
@@ -756,7 +755,6 @@ int swap_out(struct frame *choice)
   wakeup((void *)s);
   release(&swap_lock);
   acquire(&frame_lock);
-  return 0;
 }
 uint64
 swap_in(pagetable_t pagetable, uint64 va)
@@ -885,7 +883,7 @@ evict()
   // printf("evict: called\n");
   // printf("evict: called pid=%d\n",myproc()->pid);
   acquire(&frame_lock);
-  struct frame *choice = 0, *start;
+  struct frame *choice = 0, *start, *very_start = clock_hand;
   int no_of_loops = 0;
   while(choice==0){
     while (clock_hand->ref_bit == 1)
@@ -917,7 +915,7 @@ evict()
       if (clock_hand == start)
         break;
     }
-    if (choice == 0) {
+    if (choice == 0 && clock_hand == very_start) {
         no_of_loops++;
         if (no_of_loops > 2) {
             release(&frame_lock);
@@ -930,11 +928,7 @@ evict()
   struct proc *p = choice->curr_proc;
   choice->in_use = 2;  // mark in-progress so other CPUs skip this frame
   // printf("evicting page of pid %d\n", p->pid);
-  int j = swap_out(choice);
-  if(j < 0) {
-    release(&frame_lock);
-    return (struct frame *) 0;
-  }
+  swap_out(choice);
   p->pages_evicted++;
   choice->curr_proc = 0;
   release(&frame_lock);
