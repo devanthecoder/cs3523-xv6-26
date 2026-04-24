@@ -1,5 +1,5 @@
 // RAID1.c -- Basic RAID functionality test.
-// Tests RAID 0, RAID 5, and RAID 5 basic read/write operations.
+// Tests RAID 0, RAID 1, and RAID 1 basic read/write operations.
 // Measures disk statistics for each RAID level.
 #include "kernel/types.h"
 #include "kernel/diskstats.h"
@@ -41,7 +41,7 @@ main(void)
     int ok = 1;
     for (int i = 0; i < TEST_PAGES; i++) {
         if (mem[i * PGSIZE] != (char)(i + 1)) {
-            printf("FAIL: RAID 5 data corruption at page %d\n", i);
+            printf("FAIL: RAID 1 data corruption at page %d\n", i);
             ok = 0;
         }
     }
@@ -59,8 +59,8 @@ main(void)
     if (ok) printf("PASS: RAID 5 basic functionality\n");
     else printf("FAIL: RAID 5 data corruption\n");
 
-    // // Test RAID 5
-    // printf("Testing RAID 5...\n");
+    // // Test RAID 1
+    // printf("Testing RAID 1...\n");
     // setraidlevel(1);
     // setdisksched(0); // FCFS
 
@@ -78,7 +78,7 @@ main(void)
     // ok = 1;
     // for (int i = 0; i < TEST_PAGES; i++) {
     //     if (mem[i * PGSIZE] != (char)(i + 10)) {
-    //         printf("FAIL: RAID 5 data corruption at page %d\n", i);
+    //         printf("FAIL: RAID 1 data corruption at page %d\n", i);
     //         ok = 0;
     //     }
     // }
@@ -88,16 +88,16 @@ main(void)
     //     exit(1);
     // }
 
-    // printf("RAID 5: reads=%d writes=%d avg_latency=%lu\n",
+    // printf("RAID 1: reads=%d writes=%d avg_latency=%lu\n",
     //        after.disk_reads - before.disk_reads,
     //        after.disk_writes - before.disk_writes,
     //        after.avg_disk_latency);
 
-    // if (ok) printf("PASS: RAID 5 basic functionality\n");
-    // else printf("FAIL: RAID 5 data corruption\n");
+    // if (ok) printf("PASS: RAID 1 basic functionality\n");
+    // else printf("FAIL: RAID 1 data corruption\n");
 
-    // // Test RAID 5
-    // printf("Testing RAID 5...\n");
+    // // Test RAID 1
+    // printf("Testing RAID 1...\n");
     // setraidlevel(1);
     // setdisksched(0); // FCFS
 
@@ -115,7 +115,7 @@ main(void)
     // ok = 1;
     // for (int i = 0; i < TEST_PAGES; i++) {
     //     if (mem[i * PGSIZE] != (char)(i + 20)) {
-    //         printf("FAIL: RAID 5 data corruption at page %d\n", i);
+    //         printf("FAIL: RAID 1 data corruption at page %d\n", i);
     //         ok = 0;
     //     }
     // }
@@ -125,13 +125,13 @@ main(void)
     //     exit(1);
     // }
 
-    // printf("RAID 5: reads=%d writes=%d avg_latency=%lu\n",
+    // printf("RAID 1: reads=%d writes=%d avg_latency=%lu\n",
     //        after.disk_reads - before.disk_reads,
     //        after.disk_writes - before.disk_writes,
     //        after.avg_disk_latency);
 
-    // if (ok) printf("PASS: RAID 5 basic functionality\n");
-    // else printf("FAIL: RAID 5 data corruption\n");
+    // if (ok) printf("PASS: RAID 1 basic functionality\n");
+    // else printf("FAIL: RAID 1 data corruption\n");
 
     exit(0);
 }

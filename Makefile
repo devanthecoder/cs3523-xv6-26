@@ -148,14 +148,12 @@ UPROGS=\
 	$U/_forphan\
 	$U/_dorphan\
 	$U/_RAID1\
-	$U/_RAID2\
-	$U/_RAID3\
-	$U/_RAID4\
-	$U/_RAID5\
-	$U/_RAID6\
-	$U/_RAID7\
-	$U/_RAID8\
-	$U/_RAID9\
+	$U/_PA4_A\
+	$U/_PA4_B\
+	$U/_PA4_C\
+	$U/_PA4_D\
+	$U/_PA4_E\
+	$U/_PA4_F\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

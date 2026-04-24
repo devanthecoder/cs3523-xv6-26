@@ -2,7 +2,7 @@
 #define NCPU          8  // maximum number of CPUs
 #define NOFILE       16  // open files per process
 #define NFILE       100  // open files per system
-#define NFRAME       64  // frames per system
+#define NFRAME       32  // frames per system
 #define NDISK         4  // disks in RAID
 #define NREQUEST     16  // no of I/O requests
 #define SWAPSIZE   1175  // swap table per system
