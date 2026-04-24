@@ -96,19 +96,22 @@ bread(uint dev, uint blockno)
 
   b = bget(dev, blockno);
   if(!b->valid) {
-    virtio_disk_rw(b, 0);
+    if(virtio_disk_rw(b, 0) != 0) {
+      brelse(b);
+      return 0; // indicate failure
+    }
     b->valid = 1;
   }
   return b;
 }
 
 // Write b's contents to disk.  Must be locked.
-void
+int
 bwrite(struct buf *b)
 {
   if(!holdingsleep(&b->lock))
     panic("bwrite");
-  virtio_disk_rw(b, 1);
+  return virtio_disk_rw(b, 1);
 }
 
 // Release a locked buffer.

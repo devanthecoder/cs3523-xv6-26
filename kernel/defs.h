@@ -9,6 +9,7 @@ struct sleeplock;
 struct stat;
 struct mlfqinfo;
 struct vmstats;
+struct diskstats;
 struct superblock;
 struct request;
 struct frame;
@@ -16,8 +17,8 @@ struct frame;
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
+int             bwrite(struct buf*);
 void            brelse(struct buf*);
-void            bwrite(struct buf*);
 void            bpin(struct buf*);
 void            bunpin(struct buf*);
 
@@ -107,6 +108,7 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             mlfqstat(int pid, uint64 addr);
 int             vmstat(int pid, uint64 addr);
+int             diskstat(int pid, uint64 addr);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -187,15 +189,18 @@ void            plic_complete(int);
 
 // virtio_disk.c
 void            virtio_disk_init(void);
-void            virtio_disk_rw(struct buf *, int);
+int             virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
 
 // disk_swap.c
-void            disk_write(void*, int);
-void            disk_read(void*, int);
-void            sched_disk(int);
-void            send_request(uint64, int, int);
 void            disk_swap_init(void);
+int             get_physical_block(int, int);
+int             disk_read(void*, int);
+int             disk_write(void*, int);
+int            raid_read(void*, int);
+int            raid_write(void*, int);
+void            send_request(uint64, int, int);
+void            sched_disk(int);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

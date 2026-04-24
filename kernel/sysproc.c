@@ -266,3 +266,35 @@ sys_setdisksched(void){
   return 0;
   // int pid;
 }
+
+uint64
+sys_getdiskstats(void){
+  int pid;
+  argint(0, &pid);
+  uint64 info;
+  argaddr(1, &info);
+  return diskstat(pid, info);
+  // int pid;
+}
+
+uint64
+sys_setfaildisk(void){
+  int Fail, DiskNo;
+  argint(0, &Fail);
+  argint(1, &DiskNo);
+  if((Fail != 1 && Fail != 0) || (DiskNo < 0 || DiskNo > 3)) return -1;
+  if(Fail) FailingDisk = DiskNo;
+  else FailingDisk = -1;
+  return 0;
+  // int pid;
+}
+
+uint64
+sys_setraidlevel(void){
+  int RaidLevel;
+  argint(0, &RaidLevel);
+  if((RaidLevel != 0 && RaidLevel != 1 && RaidLevel != 5)) return -1;
+  raid_level = RaidLevel;
+  return 0;
+  // int pid;
+}

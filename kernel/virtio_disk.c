@@ -214,7 +214,7 @@ alloc3_desc(int *idx)
   return 0;
 }
 
-void
+int
 virtio_disk_rw(struct buf *b, int write)
 {
   uint64 sector = b->blockno * (BSIZE / 512);
@@ -287,10 +287,13 @@ virtio_disk_rw(struct buf *b, int write)
     sleep(b, &disk.vdisk_lock);
   }
 
+  int result = (disk.info[idx[0]].status == 0) ? 0 : -1;
+
   disk.info[idx[0]].b = 0;
   free_chain(idx[0]);
 
   release(&disk.vdisk_lock);
+  return result;
 }
 
 void
@@ -316,7 +319,7 @@ virtio_disk_intr()
     int id = disk.used->ring[disk.used_idx % NUM].id;
 
     if(disk.info[id].status != 0)
-      panic("virtio_disk_intr status");
+      disk.info[id].status = -1; // mark as failed instead of panicking
 
     struct buf *b = disk.info[id].b;
     b->disk = 0;   // disk is done with buf

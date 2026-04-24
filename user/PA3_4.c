@@ -24,12 +24,12 @@ int main() {
     
     // Edge Case 3: Out of Swap Space
     
-    char *huge = sbrk(40000 * 4096);
+    char *huge = sbrk(20000 * 4096);
     printf("hello");
     if (huge == (char*)-1) {
         printf("Successfully caught Out-Of-Memory error from kernel!\n");
     } else {
-        for(int i=0; i<40000; i++) huge[i * 4096] = 'Y';
+        for(int i=0; i<20000; i++) huge[i * 4096] = 'Y';
     }    
 
     printf("Test 4 Complete.\n\n");

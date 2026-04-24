@@ -107,6 +107,11 @@ struct proc {
   int pages_swapped_in;
   int pages_swapped_out;
   int resident_pages;
+
+  // Disk Stats (should also maybe hold p->lock here)
+  int disk_reads;
+  int disk_writes;
+  uint64 avg_disk_latency;
   // wait_lock must be held when using this:
   struct proc* parent;        // Parent process
 

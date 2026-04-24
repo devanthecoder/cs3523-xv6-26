@@ -712,7 +712,7 @@ int ismapped(pagetable_t pagetable, uint64 va)
 int swap_out(struct frame *choice)
 {
   // printf("swap_out: called\n");
-  printf("swapout: called va=%lu pid=%d\n", choice->va, choice->curr_proc->pid);
+  // printf("swapout: called va=%lu pid=%d\n", choice->va, choice->curr_proc->pid);
   pte_t *pte = walk(choice->curr_proc->pagetable, choice->va, 0);
   acquire(&swap_lock);
   struct swapslot *s;
@@ -733,7 +733,7 @@ int swap_out(struct frame *choice)
   int index = s - swap_table;
   // printf("%d\n", index);
   int NO_OF_BLOCKS = PGSIZE / BSIZE;
-  int START_BLOCK = SWAPSTART + index*NO_OF_BLOCKS;
+  int START_BLOCK = index*NO_OF_BLOCKS;
   // struct buf* b;
   // memmove((void *)temp, (void *)choice->pa, PGSIZE);
   // Invalidate PTE while both locks are still held.
@@ -755,6 +755,7 @@ int swap_out(struct frame *choice)
   wakeup((void *)s);
   release(&swap_lock);
   acquire(&frame_lock);
+  return 0;
 }
 uint64
 swap_in(pagetable_t pagetable, uint64 va)
@@ -831,7 +832,7 @@ swap_in(pagetable_t pagetable, uint64 va)
   f->ref_bit = 1;
   int index = s - swap_table;
   int NO_OF_BLOCKS = PGSIZE / BSIZE;
-  int START_BLOCK = SWAPSTART + index*NO_OF_BLOCKS;
+  int START_BLOCK = index*NO_OF_BLOCKS;
   // printf("noff=%d\n", mycpu()->noff);
   release(&frame_lock);
   // if(mycpu()->noff == 1) release(&swap_lock);
@@ -928,7 +929,11 @@ evict()
   struct proc *p = choice->curr_proc;
   choice->in_use = 2;  // mark in-progress so other CPUs skip this frame
   // printf("evicting page of pid %d\n", p->pid);
-  swap_out(choice);
+  int j = swap_out(choice);
+  if(j <0){
+    release(&frame_lock);
+    return (struct frame*) 0;
+  }
   p->pages_evicted++;
   choice->curr_proc = 0;
   release(&frame_lock);

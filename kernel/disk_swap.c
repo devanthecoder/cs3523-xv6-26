@@ -14,156 +14,197 @@ int policy;
 uint64 globalArrival;
 struct spinlock sched_lock;
 int raid_level;
+int FailingDisk;
 void disk_swap_init(void){
     policy = 0;
     CURR_HEAD_POS = 0;
     initlock(&sched_lock, "disk sched");
     globalArrival = 0;
     raid_level = 5;
+    FailingDisk = -1;
     memset(request_queue, 0, sizeof(request_queue));
     // printf("disk swap initialized\n");
 }
 int get_physical_block(int DISK, int OFFSET) {
     return SWAPSTART + (DISK * DISKSIZE) + (OFFSET * (PGSIZE / BSIZE));
 }
-void disk_read(void* addr, int START_BLOCK){
+int disk_read(void* addr, int START_BLOCK){
     int NO_OF_BLOCKS = PGSIZE / BSIZE;
     struct buf* b;
+    
+    // printf("reading to address %ld from BLOCK %d\n", (uint64)addr, START_BLOCK);
     for(int i=0;i<NO_OF_BLOCKS;i++){
         b = bread(ROOTDEV, START_BLOCK + i);
+        if(b == 0) return -1; // bread failed
         memmove((void *)((uint64)addr + i*BSIZE), (void *)b->data, BSIZE);
         brelse(b);
     }
     // printf("Processed read\n");
+    return 0;
 }
-void disk_write(void* addr, int START_BLOCK){
+int disk_write(void* addr, int START_BLOCK){
     int NO_OF_BLOCKS = PGSIZE / BSIZE;
     struct buf* b;
+    // printf("writing from address %ld to BLOCK %d\n", (uint64)addr, START_BLOCK);
     for(int i=0;i<NO_OF_BLOCKS;i++){
         b = bread(ROOTDEV, START_BLOCK + i);
+        if(b == 0) return -1; // bread failed
         memmove((void *)b->data, (void *)((uint64)addr + i*BSIZE), BSIZE);
-        bwrite(b);
+        if(bwrite(b) != 0) {
+            brelse(b);
+            return -1; // bwrite failed
+        }
         brelse(b);
     }   
     // printf("Processed write\n");
+    return 0;
 }
-void raid_write(void* addr, int LOGICAL_BLOCK) {
+int raid_write(void* addr, int LOGICAL_BLOCK) {
     int DISK, OFFSET, DISK2;
 
     switch(raid_level) {
         case 0:
             DISK = LOGICAL_BLOCK % NDISK;
             OFFSET = LOGICAL_BLOCK / NDISK;
-            disk_write(addr, get_physical_block(DISK, OFFSET));
+            release(&sched_lock);
+            if(disk_write(addr, get_physical_block(DISK, OFFSET)) != 0) return -1;
             break;
-
         case 1:
             DISK = LOGICAL_BLOCK % (NDISK / 2);
             DISK2 = DISK + (NDISK / 2);
             OFFSET = LOGICAL_BLOCK / (NDISK / 2);
-            disk_write(addr, get_physical_block(DISK, OFFSET));
-            disk_write(addr, get_physical_block(DISK2, OFFSET));
+            release(&sched_lock);
+            // printf("Beginning writes");
+            if(disk_write(addr, get_physical_block(DISK, OFFSET)) != 0) return -1;
+            // printf("Processed the first RAID 1 write.\n");
+            if(disk_write(addr, get_physical_block(DISK2, OFFSET)) != 0) return -1;
+            // printf("Processed the second RAID 1 write.\n");
             break;
 
         case 5: {
-            // stripe row and slot within stripe
             int STRIPE = LOGICAL_BLOCK / (NDISK - 1);
-            int SLOT   = LOGICAL_BLOCK % (NDISK - 1);  // 0, 1, or 2
-            int P_DISK = STRIPE % NDISK;                // parity disk rotates
-            // data disk: skip over parity disk
+            int SLOT   = LOGICAL_BLOCK % (NDISK - 1);  
+            int P_DISK = STRIPE % NDISK;                
             DISK       = SLOT < P_DISK ? SLOT : SLOT + 1;
             OFFSET     = STRIPE;
 
-            // figure out the other two data slots in this stripe
-            // (the two slot values in {0,1,2} that aren't SLOT)
-            int other0 = (SLOT == 0) ? 1 : 0;
-            int other1 = (SLOT == 2) ? 1 : 2;
-            // map those slots to physical disks (skipping P_DISK)
-            int disk_other0 = other0 < P_DISK ? other0 : other0 + 1;
-            int disk_other1 = other1 < P_DISK ? other1 : other1 + 1;
+            // 1. Setup pointers: Use 'addr' directly for the slot we are writing!
+            char *data_blocks[3];
+            for (int i = 0; i < 3; i++) {
+                if (i == SLOT) {
+                    data_blocks[i] = (char *)addr; // No kalloc needed!
+                } else {
+                    data_blocks[i] = kalloc();
+                    if (!data_blocks[i]) panic("raid5 write: kalloc failed");
+                }
+            }
+            
+            char *parity = kalloc();
+            if (!parity) panic("raid5 write: kalloc failed");
 
-            // read the other two data blocks in this stripe
-            char *d_other0 = kalloc();
-            char *d_other1 = kalloc();
-            char *parity   = kalloc();
-            if (!d_other0 || !d_other1 || !parity)
-                panic("raid5 write: kalloc failed");
+            // 2. Read ONLY the other data blocks (skip the one we are overwriting)
+            release(&sched_lock);
+            for (int slot = 0; slot < 3; slot++) {
+                if (slot == SLOT) continue; // We already have the new data, save a disk read!
+                
+                int disk = slot < P_DISK ? slot : slot + 1;
+                if(disk_read(data_blocks[slot], get_physical_block(disk, OFFSET)) != 0) {
+                    for (int i = 0; i < 3; i++) if (i != SLOT) kfree(data_blocks[i]);
+                    kfree(parity);
+                    return -1;
+                }
+            }
+            acquire(&sched_lock);
 
-            disk_read(d_other0, get_physical_block(disk_other0, OFFSET));
-            disk_read(d_other1, get_physical_block(disk_other1, OFFSET));
+            // 3. Compute Parity (New Data ^ Old Other Data)
+            memset(parity, 0, PGSIZE);
+            for (int i = 0; i < PGSIZE; i++) {
+                parity[i] = data_blocks[0][i] ^ data_blocks[1][i] ^ data_blocks[2][i];
+            }
 
-            // P = new_data XOR other0 XOR other1
-            char *new_data = (char *)addr;
-            for (int i = 0; i < PGSIZE; i++)
-                parity[i] = new_data[i] ^ d_other0[i] ^ d_other1[i];
+            // 4. Write new data and new parity
+            release(&sched_lock);
+            if(disk_write(addr, get_physical_block(DISK, OFFSET)) != 0 || 
+            disk_write(parity, get_physical_block(P_DISK, OFFSET)) != 0) {
+                for (int i = 0; i < 3; i++) if (i != SLOT) kfree(data_blocks[i]);
+                kfree(parity);
+                return -1;
+            }
 
-            // write data and parity
-            disk_write(addr,    get_physical_block(DISK,   OFFSET));
-            disk_write(parity,  get_physical_block(P_DISK, OFFSET));
-
-            kfree(d_other0);
-            kfree(d_other1);
+            // 5. Clean up ONLY the memory we actually allocated
+            for (int i = 0; i < 3; i++) {
+                if (i != SLOT) {
+                    kfree(data_blocks[i]);
+                }
+            }
             kfree(parity);
             break;
         }
     }
+    return 0;
 }
 
-void raid_read(void* addr, int LOGICAL_BLOCK) {
+int raid_read(void* addr, int LOGICAL_BLOCK) {
     int DISK, OFFSET;
 
     switch(raid_level) {
         case 0:
             DISK = LOGICAL_BLOCK % NDISK;
             OFFSET = LOGICAL_BLOCK / NDISK;
-            disk_read(addr, get_physical_block(DISK, OFFSET));
+            if(DISK == FailingDisk) {
+                panic("disk failure");
+            } else {
+                release(&sched_lock);
+                disk_read(addr, get_physical_block(DISK, OFFSET));
+            }
             break;
-
+            
         case 1:
             DISK = LOGICAL_BLOCK % (NDISK / 2);
             OFFSET = LOGICAL_BLOCK / (NDISK / 2);
-            disk_read(addr, get_physical_block(DISK, OFFSET));
+            if(DISK == FailingDisk) {
+                int DISK2 = DISK + (NDISK / 2);
+                release(&sched_lock);
+                disk_read(addr, get_physical_block(DISK2, OFFSET));
+            } else {
+                release(&sched_lock);
+                disk_read(addr, get_physical_block(DISK, OFFSET));
+            }
             break;
-
+            
         case 5: {
             int STRIPE = LOGICAL_BLOCK / (NDISK - 1);
             int SLOT   = LOGICAL_BLOCK % (NDISK - 1);
             int P_DISK = STRIPE % NDISK;
             DISK       = SLOT < P_DISK ? SLOT : SLOT + 1;
             OFFSET     = STRIPE;
+            
+            if(DISK == FailingDisk) {
+                char *tmp = kalloc();
+                if (!tmp) panic("raid5 reconstruct: kalloc failed");
 
-            // normal path: data disk is alive, just read it
-            disk_read(addr, get_physical_block(DISK, OFFSET));
+                // start with zeros in addr
+                memset(addr, 0, PGSIZE);
+
+                // XOR every disk in the stripe EXCEPT the failed one
+                // this includes the parity disk — P XOR d0 XOR d1 = missing d2
+                // FailingDisk = -1;
+                release(&sched_lock);
+                for (int d = 0; d < NDISK; d++) {
+                    if (d == DISK) continue;
+                    disk_read(tmp, get_physical_block(d, OFFSET));
+                    for (int i = 0; i < PGSIZE; i++)
+                    ((char*)addr)[i] ^= tmp[i];
+                }
+                kfree(tmp);
+            } else {
+                release(&sched_lock);
+                disk_read(addr, get_physical_block(DISK, OFFSET));
+            }
             break;
         }
     }
-}
-
-// call this instead of raid_read when DISK is dead
-// reconstructs the missing block by XORing all surviving disks
-void raid5_reconstruct(void* addr, int LOGICAL_BLOCK) {
-    int STRIPE = LOGICAL_BLOCK / (NDISK - 1);
-    int SLOT   = LOGICAL_BLOCK % (NDISK - 1);
-    int P_DISK = STRIPE % NDISK;
-    int DISK   = SLOT < P_DISK ? SLOT : SLOT + 1;
-    int OFFSET = STRIPE;
-
-    char *tmp = kalloc();
-    if (!tmp) panic("raid5 reconstruct: kalloc failed");
-
-    // start with zeros in addr
-    memset(addr, 0, PGSIZE);
-
-    // XOR every disk in the stripe EXCEPT the failed one
-    // this includes the parity disk — P XOR d0 XOR d1 = missing d2
-    for (int d = 0; d < NDISK; d++) {
-        if (d == DISK) continue;
-        disk_read(tmp, get_physical_block(d, OFFSET));
-        for (int i = 0; i < PGSIZE; i++)
-            ((char*)addr)[i] ^= tmp[i];
-    }
-
-    kfree(tmp);
+    return 0;
 }
 void send_request(uint64 addr, int rw, int REQUESTED_BLOCK){
     acquire(&sched_lock);
@@ -216,18 +257,30 @@ void sched_disk(int policy){
     if(choice == 0) panic("no request found");
     int REQUEST_BLOCK = choice->START_BLOCK, rw = choice->rw;
     uint64 addr = (uint64)choice->addr;
+    acquire(&(choice->p->lock));
+    if(rw == 0){
+        choice->p->disk_reads++;
+    }
+    else{
+        choice->p->disk_writes++;
+    }
+    choice->p->avg_disk_latency = (choice->p->avg_disk_latency * (choice->p->disk_reads + choice->p->disk_writes - 1) + choice->latency * 100)/(choice->p->disk_reads + choice->p->disk_writes); 
+    release(&(choice->p->lock));
     choice->arrivalOrder = 0;
     choice->latency = 0;
     choice->rw = 0;
     choice->START_BLOCK = 0;
     choice->addr = 0;
-    release(&sched_lock);
+    CURR_HEAD_POS = REQUEST_BLOCK + (PGSIZE/BSIZE);
+    int result;
     if(rw == 0){ //read
-
-        raid_read((void*)addr, REQUEST_BLOCK);
+        result = raid_read((void*)addr, REQUEST_BLOCK);
     }
     else{ //write
-        raid_write((void*)addr, REQUEST_BLOCK);
+        result = raid_write((void*)addr, REQUEST_BLOCK);
     }
-    CURR_HEAD_POS = REQUEST_BLOCK + (PGSIZE/BSIZE);
+    if(result != 0) {
+        // disk I/O failed, kill the process
+        setkilled(choice->p);
+    }
 }

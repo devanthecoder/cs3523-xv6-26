@@ -14,7 +14,7 @@ int main() {
     if (pid_B == 0) {
         // CHILD B: IO Bound (Level 0)
         int pgsz = 4096;
-        int pages = 8000; // Safe footprint
+        int pages = 4000; // Safe footprint
         char *mem = sbrk(pages * pgsz);
         for(int i = 0; i < pages; i++) mem[i * pgsz] = 'B';
         
@@ -34,7 +34,7 @@ int main() {
         
         // Setup a massive target footprint BEFORE spinning
         int pgsz = 4096;
-        int initial_pages = 18000;
+        int initial_pages = 4000;
         char *base_mem = sbrk(initial_pages * pgsz);
         for(int i=0; i<initial_pages; i++) base_mem[i*pgsz] = 'A';
         

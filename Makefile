@@ -140,20 +140,6 @@ UPROGS=\
 	$U/_sh\
 	$U/_stressfs\
 	$U/_A1\
-	$U/_A\
-	$U/_B\
-	$U/_C\
-	$U/_D\
-	$U/_E\
-	$U/_F\
-	$U/_G\
-	$U/_H\
-	$U/_vmswap1\
-	$U/_vmswap2\
-	$U/_vmswap3\
-	$U/_vmswap4\
-	$U/_vmswap5\
-	$U/_vmswap6\
 	$U/_usertests\
 	$U/_grind\
 	$U/_wc\
@@ -161,10 +147,15 @@ UPROGS=\
 	$U/_logstress\
 	$U/_forphan\
 	$U/_dorphan\
-	$U/_PA3_1\
-	$U/_PA3_2\
-	$U/_PA3_3\
-	$U/_PA3_4\
+	$U/_RAID1\
+	$U/_RAID2\
+	$U/_RAID3\
+	$U/_RAID4\
+	$U/_RAID5\
+	$U/_RAID6\
+	$U/_RAID7\
+	$U/_RAID8\
+	$U/_RAID9\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

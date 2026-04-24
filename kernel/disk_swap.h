@@ -12,3 +12,4 @@ extern int policy;
 extern uint64 globalArrival;
 extern struct spinlock sched_lock;
 extern int raid_level;
+extern int FailingDisk;

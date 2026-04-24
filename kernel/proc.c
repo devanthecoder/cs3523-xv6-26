@@ -7,6 +7,7 @@
 #include "defs.h"
 #include "mlfqinfo.h"
 #include "vminfo.h"
+#include "diskstats.h"
 extern int resetPriority;
 struct cpu cpus[NCPU];
 
@@ -184,6 +185,9 @@ freeproc(struct proc *p)
   p->pages_swapped_in = 0;
   p->pages_swapped_out = 0;
   p->resident_pages = 0;
+  p->disk_reads = 0;
+  p->disk_writes = 0;
+  p->avg_disk_latency = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -805,6 +809,35 @@ vmstat(int pid, uint64 addr){
   (&info)->pages_swapped_in = p->pages_swapped_in;
   (&info)->pages_swapped_out = p->pages_swapped_out;
   (&info)->resident_pages = p->resident_pages;
+  release(&p->lock);
+  if(copyout(myproc()->pagetable, addr, (char *)(&info), sizeof(info)) < 0) return -1;
+  return 0;
+}
+int 
+diskstat(int pid, uint64 addr){
+  struct proc* p;
+  struct diskstats info;
+  //Finding proc with the given PID
+  acquire(&wait_lock);
+  int isValid = 0;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      release(&p->lock);
+      isValid = 1;
+      break;
+    }
+    release(&p->lock);
+  }
+  release(&wait_lock);
+  if(!isValid) return -1;
+
+  //After finding correct proc, putting all the info in VMStats struct
+  acquire(&p->lock);
+  (&info)->disk_reads = p->disk_reads;
+  // for(int i=0;i<4;i++) (&info)->ticks[i] = p->ticks[i];
+  (&info)->disk_writes = p->disk_writes;
+  (&info)->avg_disk_latency = p->avg_disk_latency;
   release(&p->lock);
   if(copyout(myproc()->pagetable, addr, (char *)(&info), sizeof(info)) < 0) return -1;
   return 0;
